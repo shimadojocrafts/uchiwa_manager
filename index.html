@@ -32,6 +32,9 @@
   .chartNote,.chartLegend,.muted{font-size:10px}
 }
 
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%) translateY(18px);background:#123b5d;color:#fff;border-radius:999px;padding:12px 18px;font-weight:800;box-shadow:0 8px 25px rgba(20,60,90,.22);z-index:20;opacity:0;pointer-events:none;transition:.22s ease;max-width:calc(100% - 28px);text-align:center}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+
 .footerBar{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.94);border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;justify-content:center;z-index:6}.footerBar .btn{max-width:260px;width:50%}
 </style>
 </head>
@@ -165,6 +168,7 @@
 </section>
 </main>
 <div class="footerBar"><button class="btn sub" id="goStock">商品一覧</button><button class="btn" id="goSaleRegister">売上登録</button></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
 (function(){
 const $=id=>document.getElementById(id);
@@ -199,7 +203,7 @@ const defaultCategoryCosts={'手書きネオンうちわ':0,'ネオン風うち�
 const costSettingsVersion=1;
 const shippingSettingsVersion=2;
 const packingSettingsVersion=2;
-let state=load();let currentType='single';let imageData='';
+let state=load();let currentType='single';let imageData='';let productRegistering=false;
 function load(){try{return JSON.parse(localStorage.getItem('uchiwa_manager_v6')||localStorage.getItem('uchiwa_manager_v4')||localStorage.getItem('uchiwa_manager_v3'))||init()}catch(e){return init()}}
 function init(){return{products:[],sales:[],categories:defaultCategories,fees:defaultFees,shippingPrices:JSON.parse(JSON.stringify(defaultShippingPrices)),shippingSettingsVersion:shippingSettingsVersion,packingCosts:JSON.parse(JSON.stringify(defaultPackingCosts)),packingSettingsVersion:packingSettingsVersion,categoryCosts:JSON.parse(JSON.stringify(defaultCategoryCosts)),costSettingsVersion:costSettingsVersion}}
 function save(){localStorage.setItem('uchiwa_manager_v6',JSON.stringify(state));localStorage.setItem('uchiwa_manager_v4',JSON.stringify(state))}
@@ -224,6 +228,7 @@ function adjustedShipping(base,discount,custom){
 function discountLabel(v){return ({none:'なし',half:'半額',free:'無料',custom:'手入力'}[v]||'なし')}
 function net(price,shipping,fee,packing,cost){return Number(price||0)-Number(shipping||0)-Number(fee||0)-Number(packing||0)-Number(cost||0)}
 function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+function showToast(message){const el=$('toast');if(!el)return;el.textContent=message;el.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>el.classList.remove('show'),2400)}
 function fillCategories(){[$('category'),$('filterCategory')].forEach(sel=>{const keep=sel.value;sel.innerHTML=sel.id==='filterCategory'?'<option value="">全カテゴリ</option>':'';state.categories.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o)});if([...sel.options].some(o=>o.value===keep))sel.value=keep});$('categoryText').value=state.categories.join('\n')}
 function fillSaleOptions(){const keep=$('saleProduct').value;$('saleProduct').innerHTML='<option value="">商品を選択</option>'+state.products.map(p=>`<option value="${p.id}">${esc(p.name)} / ${esc(p.category)}</option>`).join('');if([...$('saleProduct').options].some(o=>o.value===keep))$('saleProduct').value=keep;const keepPlatform=$('salePlatform').value;$('salePlatform').innerHTML=state.fees.map(f=>`<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('');if([...$('salePlatform').options].some(o=>o.value===keepPlatform))$('salePlatform').value=keepPlatform}
 function showTab(tab){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===tab));render()}
@@ -231,7 +236,23 @@ function updatePrintDate(){const el=$('printGeneratedAt');if(el){const d=new Dat
 function printSummary(){showTab('summary');updatePrintDate();setTimeout(()=>window.print(),150)}
 function setType(t){currentType=t;$('typeSingle').classList.toggle('active',t==='single');$('typeMulti').classList.toggle('active',t==='order');$('quantity').disabled=t==='order';$('quantity').value=t==='single'?($('quantity').value||1):''}
 function clearForm(){['name','content'].forEach(id=>$(id).value='');$('quantity').value=1;$('status').value='販売中';$('imageInput').value='';imageData='';$('preview').classList.add('hidden')}
-function addProduct(){const name=$('name').value.trim();if(!name){alert('商品名を入力してください');return}const product={id:'P'+Date.now(),type:currentType,name,content:$('content').value.trim(),category:$('category').value||state.categories[0],status:$('status').value||'販売中',quantity:currentType==='single'?Math.max(1,Number($('quantity').value||1)):null,image:imageData,createdAt:today()};state.products.unshift(product);save();clearForm();showTab('stock')}
+function addProduct(){
+  if(productRegistering)return;
+  const name=$('name').value.trim();
+  if(!name){alert('商品名を入力してください');return}
+  productRegistering=true;
+  const btn=$('addProduct');
+  const oldText=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='登録中…';
+  const product={id:'P'+Date.now(),type:currentType,name,content:$('content').value.trim(),category:$('category').value||state.categories[0],status:$('status').value||'販売中',quantity:currentType==='single'?Math.max(1,Number($('quantity').value||1)):null,image:imageData,createdAt:today()};
+  state.products.unshift(product);
+  save();
+  clearForm();
+  showTab('stock');
+  showToast('商品を登録しました。商品一覧に移動しました。');
+  setTimeout(()=>{productRegistering=false;btn.disabled=false;btn.textContent=oldText},700);
+}
 function soldQty(productId){return state.sales.filter(s=>s.productId===productId).reduce((a,s)=>a+Number(s.quantity||0),0)}
 function effectiveStatus(p){if(p.status==='販売停止')return '販売停止';if(p.status==='販売終了')return '販売終了';if(p.type==='single'&&Number(p.quantity||0)<=0)return '売り切れ';return p.status||'販売中'}
 function statusClass(st){return st==='販売中'?'green':((st==='販売停止'||st==='販売終了')?'gray':'red')}
@@ -240,7 +261,7 @@ function selectSaleProduct(id){$('saleProduct').value=id;applyProductToSale();sh
 function applyProductToSale(){const p=state.products.find(x=>x.id===$('saleProduct').value);if(!p){$('saleProductPreview').textContent='商品を選択してください。';updateSalePreview();return}const sold=soldQty(p.id);const type=p.type==='single'?'一点物':'受注印刷/無限在庫';const stock=p.type==='single'?`在庫 ${p.quantity}枚`:`販売累計 ${sold}枚`;const st=effectiveStatus(p);$('saleProductPreview').innerHTML=`選択中：<b>${esc(p.name)}</b><br>${esc(p.category)} / ${type} / ${stock} / ステータス：${st}`;updateSalePreview()}
 function clearSaleForm(){$('saleProduct').value='';$('saleDate').value=today();$('saleQty').value=1;$('salePrice').value='';$('saleShippingMethod').value='ネコポス';$('saleShippingDiscount').value='none';updatePackingOptions();$('saleShipping').readOnly=true;updateSalePreview();$('saleProductPreview').textContent='商品を選択してください。'}
 function updateSalePreview(){updatePackingOptions();const platform=$('salePlatform').value;const method=$('saleShippingMethod').value||'ネコポス';const packingType=$('salePackingType').value||((packingTypes[method]&&packingTypes[method][0]&&packingTypes[method][0].key)||'');const price=Number($('salePrice').value||0);const baseShipping=shippingFor(platform,method);const discount=$('saleShippingDiscount').value||'none';$('saleShipping').readOnly=discount!=='custom';let currentCustom=$('saleShipping').value;if(discount!=='custom')currentCustom='';const shipping=adjustedShipping(baseShipping,discount,currentCustom);const packingPer=packingFor(method,packingType);const qty=Math.max(1,Number($('saleQty').value||1));const fee=feeFor(platform,price)*qty;const gross=price*qty;const ship=shipping*qty;const packing=packingPer*qty;const p=state.products.find(x=>x.id===$('saleProduct').value);const cost=costForCategory(p?p.category:'その他')*qty;if(discount!=='custom')$('saleShipping').value=shipping;else if($('saleShipping').value==='')$('saleShipping').value=shipping;$('salePackingCost').value=yen(packing);$('saleFeePreview').value=yen(fee);$('saleCostPreview').value=yen(cost);$('saleNetPreview').value=yen(net(gross,ship,fee,packing,cost))}
-function addSale(){const p=state.products.find(x=>x.id===$('saleProduct').value);if(!p){alert('商品を選択してください');return}const isSingle=p.type==='single';const qty=Number($('saleQty').value||1);if(!qty||qty<=0){alert('販売枚数を入力してください');return}if(effectiveStatus(p)!=='販売中'){alert('販売中の商品だけ売上登録できます');return}if(isSingle&&qty>Number(p.quantity||0)){alert('在庫数より多く販売できません');return}const platform=$('salePlatform').value||'その他';const method=$('saleShippingMethod').value||'ネコポス';const packingType=$('salePackingType').value||((packingTypes[method]&&packingTypes[method][0]&&packingTypes[method][0].key)||'');const price=Number($('salePrice').value||0);const discount=$('saleShippingDiscount').value||'none';const baseShipping=shippingFor(platform,method);const shippingPer=adjustedShipping(baseShipping,discount,$('saleShipping').value);const packingPer=packingFor(method,packingType);const fee=feeFor(platform,price)*qty;const gross=price*qty;const ship=shippingPer*qty;const packing=packingPer*qty;const cost=costForCategory(p.category)*qty;state.sales.unshift({id:'S'+Date.now(),productId:p.id,name:p.name,category:p.category,platform,shippingMethod:method,shippingDiscount:discount,baseShipping,packingType,packingCost:packing,cost,date:$('saleDate').value||today(),quantity:qty,price,shipping:ship,fee,gross,net:net(gross,ship,fee,packing,cost)});if(isSingle){p.quantity-=qty;if(Number(p.quantity||0)<=0)p.status='売り切れ'}save();clearSaleForm();showTab('sales')}
+function addSale(){const p=state.products.find(x=>x.id===$('saleProduct').value);if(!p){alert('商品を選択してください');return}const isSingle=p.type==='single';const qty=Number($('saleQty').value||1);if(!qty||qty<=0){alert('販売枚数を入力してください');return}if(effectiveStatus(p)!=='販売中'){alert('販売中の商品だけ売上登録できます');return}if(isSingle&&qty>Number(p.quantity||0)){alert('在庫数より多く販売できません');return}const platform=$('salePlatform').value||'その他';const method=$('saleShippingMethod').value||'ネコポス';const packingType=$('salePackingType').value||((packingTypes[method]&&packingTypes[method][0]&&packingTypes[method][0].key)||'');const price=Number($('salePrice').value||0);const discount=$('saleShippingDiscount').value||'none';const baseShipping=shippingFor(platform,method);const shippingPer=adjustedShipping(baseShipping,discount,$('saleShipping').value);const packingPer=packingFor(method,packingType);const fee=feeFor(platform,price)*qty;const gross=price*qty;const ship=shippingPer*qty;const packing=packingPer*qty;const cost=costForCategory(p.category)*qty;state.sales.unshift({id:'S'+Date.now(),productId:p.id,name:p.name,category:p.category,platform,shippingMethod:method,shippingDiscount:discount,baseShipping,packingType,packingCost:packing,cost,date:$('saleDate').value||today(),quantity:qty,price,shipping:ship,fee,gross,net:net(gross,ship,fee,packing,cost)});if(isSingle){p.quantity-=qty;if(Number(p.quantity||0)<=0)p.status='売り切れ'}save();clearSaleForm();showTab('sales');showToast('売上を登録しました。')}
 function editQty(id){const p=state.products.find(x=>x.id===id);if(p.type!=='single'){alert('受注印刷/無限在庫の商品は在庫数を変更しません。売れた枚数は販売履歴に記録されます。');return}const q=Number(prompt('在庫数を変更',p.quantity));if(!isNaN(q)&&q>=0){p.quantity=q;if(q<=0)p.status='売り切れ';else if(p.status==='売り切れ')p.status='販売中';save();render()}}
 function changeStatus(id,status){const p=state.products.find(x=>x.id===id);if(!p)return;if(p.type==='single'&&Number(p.quantity||0)<=0&&status==='販売中'){alert('在庫0の一点物は販売中にできません。在庫変更で在庫数を戻してください。');render();return}p.status=status;save();render()}
 function delProduct(id){if(!confirm('この商品を削除しますか？売上一覧は残ります。'))return;state.products=state.products.filter(p=>p.id!==id);save();render()}
